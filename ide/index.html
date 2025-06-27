@@ -1,25 +1,53 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Simple JS Compiler</title>
+  <title>TBT Compiler Demo</title>
+  <style>
+    table { border-collapse: collapse; }
+    td { width: 20px; height: 20px; border: 1px solid black; }
+  </style>
 </head>
 <body>
-  <h2>My Simple JavaScript Compiler</h2>
-  <textarea id="code" rows="10" cols="50">// Write your JS code here</textarea><br>
-  <button onclick="runCode()">Run Code</button>
-  <h3>Output:</h3>
-  <pre id="output"></pre>
 
-  <script>
-    function runCode() {
-      const code = document.getElementById('code').value;
-      try {
-        const result = eval(code);
-        document.getElementById('output').textContent = result;
-      } catch (error) {
-        document.getElementById('output').textContent = error;
-      }
+<h2>Tile-By-Tile (TBT) Language Compiler</h2>
+<textarea id="tbtCode" rows="10" cols="60">canvas 10 5</textarea><br>
+<button onclick="runTBT()">Run TBT Code</button>
+
+<h3>Output:</h3>
+<div id="output"></div>
+
+<script>
+function runTBT() {
+  const code = document.getElementById('tbtCode').value;
+  const lines = code.split('\n');
+  let gridWidth = 0;
+  let gridHeight = 0;
+
+  // Parse lines one by one
+  lines.forEach(line => {
+    const parts = line.trim().split(' ');
+    if (parts[0] === 'canvas') {
+      gridWidth = parseInt(parts[1]);
+      gridHeight = parseInt(parts[2]);
+      drawCanvas(gridWidth, gridHeight);
     }
-  </script>
+    // Ajoute ici tes futurs parsers pour ref=, move, etc.
+  });
+}
+
+function drawCanvas(width, height) {
+  let html = '<table>';
+  for (let y = 0; y < height; y++) {
+    html += '<tr>';
+    for (let x = 0; x < width; x++) {
+      html += '<td></td>';
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  document.getElementById('output').innerHTML = html;
+}
+</script>
+
 </body>
 </html>
