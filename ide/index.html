@@ -1,10 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Compilator TBT</title>
+  <title>Simple JS Compiler</title>
 </head>
 <body>
+  <h2>My Simple JavaScript Compiler</h2>
+  <textarea id="code" rows="10" cols="50">// Write your JS code here</textarea><br>
+  <button onclick="runCode()">Run Code</button>
+  <h3>Output:</h3>
+  <pre id="output"></pre>
 
+  <script>
+    function runCode() {
+      const code = document.getElementById('code').value;
+      try {
+        const result = eval(code);
+        document.getElementById('output').textContent = result;
+      } catch (error) {
+        document.getElementById('output').textContent = error;
+      }
+    }
+  </script>
 </body>
 </html>
