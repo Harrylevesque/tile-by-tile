@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tile Grid View</title>
+    <style>
+        .grid { display: grid; grid-template-columns: repeat(10, 32px); grid-template-rows: repeat(10, 32px); gap: 2px; }
+        .tile { width: 32px; height: 32px; background: #e0e0e0; border: 1px solid #bbb; display: flex; align-items: center; justify-content: center; font-size: 14px; font-family: monospace; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+    <h1>Tile Grid View</h1>
+    <div id="grid-container"></div>
+    <pre id="output-log" style="color:#222;background:#f8f8f8;padding:8px 12px;margin:12px 0 0 0;max-width:90vw;overflow-x:auto;"></pre>
+    <pre id="error-log" style="color:red;"></pre>
+    <script>
+        // This script expects window.gridData and window.gridErrors to be set by the opener
+        function colorFrom8Bit(state) {
+            const r = ((state >> 5) & 0b111) * 36;
+            const g = ((state >> 2) & 0b111) * 36;
+            const b = (state & 0b11) * 85;
+            return `rgb(${r},${g},${b})`;
+        }
+        function renderGrid(width, height, board, objects) {
+            let grid = '<div class="grid" style="grid-template-columns:repeat(' + width + ',32px);grid-template-rows:repeat(' + height + ',32px);">';
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const stack = board && board[y] ? board[y][x] : null;
+                    if (stack && stack.length > 0 && objects) {
+                        if (stack.length === 1) {
+                            // Single object: fill the tile
+                            const obj = objects[Number(stack[0])];
+                            const color = colorFrom8Bit(obj.state || 0);
+                            grid += `<div class="tile" title="id=${obj.id} state=${obj.state}" style="background:${color};color:#fff;">${obj.id}</div>`;
+                        } else {
+                            // Multiple objects: show stack as bars
+                            grid += '<div class="tile" style="padding:0;flex-direction:column;">';
+                            for (let i = 0; i < stack.length; i++) {
+                                const obj = objects[Number(stack[i])];
+                                if (obj) {
+                                    const color = colorFrom8Bit(obj.state || 0);
+                                    grid += `<div title="id=${obj.id} state=${obj.state}" style="background:${color};color:#fff;width:100%;height:12px;line-height:12px;font-size:10px;overflow:hidden;">${obj.id}</div>`;
+                                }
+                            }
+                            grid += '</div>';
+                        }
+                    } else {
+                        grid += `<div class="tile" title="(${x},${y})"></div>`;
+                    }
+                }
+            }
+            grid += '</div>';
+            return grid;
+        }
+        function showGridAndErrors() {
+            if (window.gridData && window.gridData.width && window.gridData.height && window.gridData.board && window.gridData.objects) {
+                document.getElementById('grid-container').innerHTML = renderGrid(window.gridData.width, window.gridData.height, window.gridData.board, window.gridData.objects);
+            } else {
+                document.getElementById('grid-container').textContent = 'No grid data.';
+            }
+            if (window.gridErrors) {
+                document.getElementById('error-log').textContent = JSON.stringify(window.gridErrors, null, 2);
+            }
+            // Show output log if present
+            if (window.gridData && window.gridData.output) {
+                document.getElementById('output-log').textContent = window.gridData.output;
+            } else {
+                document.getElementById('output-log').textContent = '';
+            }
+        }
+        window.onload = showGridAndErrors;
+
+        window.addEventListener('message', async (event) => {
+            if (event.data && event.data.tbtCode) {
+                try {
+                    const main = await import('./main.js');
+                    const tokens = main.tokenize(event.data.tbtCode);
+                    const ast = main.parse(tokens);
+                    const result = main.interpret(ast);
+                    // Extract width/height from AST if not present in result
+                    let width = result.width, height = result.height;
+                    if (!width || !height) {
+                        const canvasNode = Array.isArray(ast) ? ast.find(n => n.type === 'canvas') : null;
+                        if (canvasNode) {
+                            width = canvasNode.width;
+                            height = canvasNode.height;
+                        }
+                    }
+                    window.gridData = {
+                        width,
+                        height,
+                        board: result.board,
+                        objects: result.objects,
+                        output: result.output || ''
+                    };
+                    window.gridErrors = result.errors || null;
+                    showGridAndErrors();
+                } catch (e) {
+                    window.gridErrors = e.message || e.toString();
+                    showGridAndErrors();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
