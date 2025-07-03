@@ -1,0 +1,24 @@
+canvas 8 8
+
+spawn id=1 x=4 y=4 state=0
+assign w to id=1
+assign a to id=1
+assign s to id=1
+assign d to id=1
+
+repeat 1 forever
+.if id=1 is assigned w
+..true
+.. move id=1 up
+
+.if id=1 is assigned a
+..true
+.. move id=1 left
+
+.if id=1 is assigned s
+..true
+.. move id=1 down
+
+.if id=1 is assigned d
+..true
+.. move id=1 right

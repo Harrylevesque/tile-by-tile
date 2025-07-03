@@ -45,63 +45,87 @@ function generateTileGridHTML(width, height, board, objects) {
     return grid;
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-    const input = document.getElementById('tbt-input');
-    const runBtn = document.getElementById('run-btn');
-    const output = document.getElementById('tbt-output');
+// Only run browser code if window is defined
+if (typeof window !== 'undefined') {
+    window.addEventListener('DOMContentLoaded', () => {
+        const input = document.getElementById('tbt-input');
+        const runBtn = document.getElementById('run-btn');
+        const output = document.getElementById('tbt-output');
 
-    runBtn.addEventListener('click', () => {
-        try {
-            const code = input.value;
-            const tokens = tokenize(code);
-            const ast = parse(tokens);
-            const result = interpret(ast);
-            // Log everything to the console for debugging
-            console.log('TBT code:', code);
-            console.log('Tokens:', tokens);
-            console.log('AST:', ast);
-            console.log('Interpreter result:', result);
-            output.textContent = result.output || result;
-            // Find canvas node in AST
-            const canvasNode = ast.find(n => n.type === 'canvas');
-            if (canvasNode && result.board && result.objects) {
-                // Open or reuse a window named 'view' and load view.html
-                let win = window.open('view.html', 'view');
-                if (win) {
-                    // Wait for the window to load, then set grid data and errors
-                    const gridData = {
-                        width: canvasNode.width,
-                        height: canvasNode.height,
-                        board: result.board,
-                        objects: result.objects,
-                        output: result.output // Pass output log as well
-                    };
-                    const gridErrors = result.errors || null;
-                    // Use a timer to wait for the window to be ready
-                    const sendData = () => {
-                        if (win && win.document && win.document.readyState === 'complete') {
-                            win.gridData = gridData;
-                            win.gridErrors = gridErrors;
-                            if (typeof win.showGridAndErrors === 'function') {
-                                win.showGridAndErrors();
+        runBtn.addEventListener('click', () => {
+            try {
+                const code = input.value;
+                const tokens = tokenize(code);
+                const ast = parse(tokens);
+                const result = interpret(ast);
+                // Log everything to the console for debugging
+                console.log('TBT code:', code);
+                console.log('Tokens:', tokens);
+                console.log('AST:', ast);
+                console.log('Interpreter result:', result);
+                output.textContent = result.output || result;
+                // Find canvas node in AST
+                const canvasNode = ast.find(n => n.type === 'canvas');
+                if (canvasNode && result.board && result.objects) {
+                    // Open or reuse a window named 'view' and load view.html
+                    let win = window.open('view.html', 'view');
+                    if (win) {
+                        // Wait for the window to load, then set grid data and errors
+                        const gridData = {
+                            width: canvasNode.width,
+                            height: canvasNode.height,
+                            board: result.board,
+                            objects: result.objects,
+                            output: result.output // Pass output log as well
+                        };
+                        const gridErrors = result.errors || null;
+                        // Use a timer to wait for the window to be ready
+                        const sendData = () => {
+                            if (win && win.document && win.document.readyState === 'complete') {
+                                win.gridData = gridData;
+                                win.gridErrors = gridErrors;
+                                if (typeof win.showGridAndErrors === 'function') {
+                                    win.showGridAndErrors();
+                                } else {
+                                    // Fallback: reload the window to trigger onload
+                                    win.location.reload();
+                                }
                             } else {
-                                // Fallback: reload the window to trigger onload
-                                win.location.reload();
+                                setTimeout(sendData, 50);
                             }
-                        } else {
-                            setTimeout(sendData, 50);
-                        }
-                    };
-                    sendData();
-                } else {
-                    alert('Popup blocked! Please allow popups for this site.');
+                        };
+                        sendData();
+                    } else {
+                        alert('Popup blocked! Please allow popups for this site.');
+                    }
                 }
+            } catch (e) {
+                output.textContent = 'Error: ' + e.message;
+                console.error('TBT Error:', e);
             }
-        } catch (e) {
-            output.textContent = 'Error: ' + e.message;
-            console.error('TBT Error:', e);
-        }
+        });
+        // --- Run on Enter in textarea ---
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+                e.preventDefault();
+                runBtn.click();
+            }
+        });
     });
-});
+}
+
+// Node.js CLI entry point for AST output
+if (typeof process !== 'undefined' && process.argv && process.argv[1] && process.argv[1].endsWith('main.js')) {
+    const fs = await import('fs');
+    const path = process.argv[2];
+    if (!path) {
+        console.error('Usage: node compiler/main.js <file.tbt>');
+        process.exit(1);
+    }
+    const code = fs.readFileSync(path, 'utf-8');
+    const tokens = tokenize(code);
+    const ast = parse(tokens);
+    console.log(JSON.stringify(ast, null, 2));
+}
 
 export { tokenize, parse, interpret };

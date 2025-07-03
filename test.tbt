@@ -1,0 +1,7 @@
+canvas 16 9
+
+ref=idx(0)
+
+repeat 500 20
+.spawn id=[ref(idx)] x=[random(0 15)] y=[random(0 8)] state=0
+.ref=idx([add(ref(idx) 1)])

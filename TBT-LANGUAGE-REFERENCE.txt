@@ -1,0 +1,172 @@
+Tile-By-Tile (TBT) Language Reference
+=====================================
+
+Overview
+--------
+TBT is a simple, grid-based, event-driven language for creating interactive tile games and simulations. It is designed to be easy to read and write, with a focus on manipulating objects on a 2D grid using simple commands and logic.
+
+1. Canvas Setup
+---------------
+canvas WIDTH HEIGHT
+Defines the size of the grid (number of columns and rows).
+Example:
+    canvas 8 8
+
+2. Object Management
+-------------------
+spawn id=ID x=X y=Y state=STATE
+Creates a new object with a unique ID at position (X, Y) and an optional state value.
+Example:
+    spawn id=1 x=4 y=4 state=0
+
+despawn id=ID
+Removes the object with the given ID from the grid.
+Example:
+    despawn id=1
+
+3. Assignments
+--------------
+assign KEY to id=ID
+Assigns a keyboard key (e.g., w, a, s, d, space, enter) to an object ID for interaction. The key can be any single character or the words 'space' or 'enter'.
+Example:
+    assign w to id=1
+    assign space to id=2
+
+You can assign multiple keys to the same object, or different keys to different objects.
+
+4. Movement
+-----------
+move id=ID [x=X] [y=Y] [left|right|up|down|over|under] [set=STATE] [swap]
+Moves the object with the given ID. You can specify:
+- Absolute position: x=, y=
+- Relative direction: left, right, up, down, over, under
+- Change state: set=STATE
+- Swap: swap (swap positions with another object, if implemented)
+
+Examples:
+    move id=1 up
+    move id=2 x=3 y=5
+    move id=1 left set=2
+
+5. Repeat Blocks (Processes)
+---------------------------
+repeat DELAY COUNT
+- DELAY: milliseconds between iterations (not always used in real-time mode)
+- COUNT: number of times to repeat, or forever for infinite
+A repeat block runs its inner statements multiple times, acting as a process. Multiple repeat blocks run in parallel. Each repeat block can contain any number of statements, including conditionals and moves.
+
+Example:
+    repeat 1 forever
+    .if id=1 is assigned w
+    ..true
+    .. move id=1 up
+
+6. Conditional Logic
+--------------------
+if id=ID is [RELATION] [id=ID|KEY]
+- RELATION: is, on, under, over, left, right, assigned
+- 'assigned' checks if a key is currently pressed for the given id
+- 'is' checks if two ids are equal
+- 'on', 'under', 'over', 'left', 'right' check spatial relationships between objects
+
+Conditional blocks execute their .true or .false sub-blocks based on the condition. You can nest if statements and have multiple .true/.false blocks in a repeat.
+
+Example:
+    if id=1 is assigned w
+    .true
+    .. move id=1 up
+    .false
+    .. move id=1 down
+
+7. Variables and Expressions
+----------------------------
+ref=NAME(VALUE)
+Assigns a value to a variable. Variables are global and can be used in expressions.
+Example:
+    ref=score(0)
+
+ref(NAME)
+References a variable's value. Can be used anywhere a value is expected.
+Example:
+    move id=[ref(player)] up
+
+Expressions
+You can use expressions in brackets [ ... ] for math and random:
+- add, sub, mul, div, mod, random
+- Example: [add(1 2)], [random(0 10)]
+- You can nest expressions: [add([ref(score)] 1)]
+
+Supported functions:
+- add(a b ...): sum
+- sub(a b ...): subtract
+- mul(a b ...): multiply
+- div(a b ...): divide
+- mod(a b ...): modulo
+- random(a b): random integer between a and b (inclusive)
+- ref(name): value of variable 'name'
+
+8. Wait
+-------
+wait DURATION
+Pauses execution for the given duration (milliseconds). In real-time mode, this is usually ignored.
+Example:
+    wait 100
+
+9. Comments
+-----------
+Block comments can be written as:
+    /- This is a comment -/
+Comments are ignored by the interpreter.
+
+10. Example Program
+-------------------
+canvas 8 8
+
+spawn id=1 x=4 y=4 state=0
+assign w to id=1
+assign a to id=1
+assign s to id=1
+assign d to id=1
+
+repeat 1 forever
+.if id=1 is assigned w
+..true
+.. move id=1 up
+.if id=1 is assigned a
+..true
+.. move id=1 left
+.if id=1 is assigned s
+..true
+.. move id=1 down
+.if id=1 is assigned d
+..true
+.. move id=1 right
+
+11. Advanced Usage
+------------------
+- You can have multiple repeat blocks (processes) running in parallel. Each can control different objects or behaviors.
+- You can assign the same key to multiple objects, or multiple keys to the same object.
+- You can use variables and expressions to make your logic more dynamic.
+- You can nest if statements for more complex logic.
+
+12. Syntax Summary
+------------------
+- canvas: Set grid size
+- spawn/despawn: Add/remove objects
+- assign: Map keys to objects
+- move: Move objects
+- repeat: Start a process (can use forever)
+- if: Conditional logic
+- ref= / ref(): Variables
+- wait: Pause
+- [ ... ]: Expressions
+- /- ... -/: Comments
+
+13. Tips
+--------
+- Indentation is not required, but using dots (.) for block structure is mandatory.
+- Use repeat ... forever for interactive games.
+- Use multiple repeat blocks for independent behaviors.
+- Use assign ... to id=... to map keys to objects.
+- Use expressions for dynamic values.
+

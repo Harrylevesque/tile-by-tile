@@ -6,13 +6,33 @@
     <style>
         .grid { display: grid; grid-template-columns: repeat(10, 32px); grid-template-rows: repeat(10, 32px); gap: 2px; }
         .tile { width: 32px; height: 32px; background: #e0e0e0; border: 1px solid #bbb; display: flex; align-items: center; justify-content: center; font-size: 14px; font-family: monospace; box-sizing: border-box; }
+        .flex-row { display: flex; flex-direction: row; align-items: flex-start; }
+        #grid-container { flex: 0 0 auto; }
+        #log-panel { flex: 1 1 0; min-width: 320px; max-width: 480px; margin-left: 24px; background: #f8f8f8; border: 1px solid #bbb; border-radius: 6px; height: 340px; display: flex; flex-direction: column; }
+        #output-log { color: #222; background: #f8f8f8; padding: 8px 12px; margin: 0; max-width: 100%; overflow-x: auto; overflow-y: auto; flex: 1 1 0; font-size: 14px; font-family: monospace; border-bottom: 1px solid #ddd; }
+        #error-log { color: red; background: #fff0f0; padding: 8px 12px; margin: 0; max-width: 100%; overflow-x: auto; overflow-y: auto; font-size: 13px; font-family: monospace; }
     </style>
 </head>
 <body>
     <h1>Tile Grid View</h1>
-    <div id="grid-container"></div>
-    <pre id="output-log" style="color:#222;background:#f8f8f8;padding:8px 12px;margin:12px 0 0 0;max-width:90vw;overflow-x:auto;"></pre>
-    <pre id="error-log" style="color:red;"></pre>
+    <div class="flex-row">
+        <div id="grid-container"></div>
+        <div id="log-panel">
+            <pre id="output-log"></pre>
+            <pre id="error-log"></pre>
+        </div>
+    </div>
+    <div id="button-controls" style="margin:12px 0;"></div>
+    <div style="margin:12px 0;">
+        <label for="prewrite-keys" style="font-weight:bold;">Prewrite keys:</label>
+        <input id="prewrite-keys" type="text" style="font-size:18px;padding:4px 10px;width:200px;" placeholder="e.g. wasdssddw" />
+        <span style="color:#888;font-size:14px;">(Keys will be sent in order on Start)</span>
+    </div>
+    <div style="margin:12px 0;">
+        <label for="live-key-input" style="font-weight:bold;">Live key input:</label>
+        <input id="live-key-input" type="text" style="font-size:18px;padding:4px 10px;width:200px;" placeholder="Click here and use WASD" autocomplete="off" />
+        <span id="live-key-status" style="color:#1a5;font-size:14px;margin-left:8px;"></span>
+    </div>
     <script>
         // This script expects window.gridData and window.gridErrors to be set by the opener
         function colorFrom8Bit(state) {
@@ -60,6 +80,8 @@
             }
             if (window.gridErrors) {
                 document.getElementById('error-log').textContent = JSON.stringify(window.gridErrors, null, 2);
+            } else {
+                document.getElementById('error-log').textContent = '';
             }
             // Show output log if present
             if (window.gridData && window.gridData.output) {
@@ -70,37 +92,315 @@
         }
         window.onload = showGridAndErrors;
 
+        // --- INTERACTIVE ASSIGNMENT SUPPORT ---
+        let lastCode = null;
+        let lastAst = null;
+        let lastRawAst = null;
+        let lastAssignments = {};
+        let lastKeySignal = null;
+        let gameLoopInterval = null;
+        let tbtInterpreter = null;
+        // --- DYNAMIC CONTROL BUTTONS BASED ON ASSIGNMENTS ---
+        function getAssignedKeys(ast) {
+            // Find all assign statements and collect their keys
+            const keys = new Set();
+            if (!Array.isArray(ast)) return [];
+            for (const node of ast) {
+                if (node && typeof node === 'object' && node.type === 'assign' && typeof node.key === 'string') {
+                    keys.add(node.key);
+                }
+            }
+            return Array.from(keys);
+        }
+        function keyToLabel(key) {
+            // Map key to a friendly label
+            const map = { w: 'Up', a: 'Left', s: 'Down', d: 'Right', ' ': 'Space', enter: 'Enter' };
+            return map[key] || key.toUpperCase();
+        }
+        function createControlDropdownsDynamic(keys, onStart) {
+            const container = document.getElementById('button-controls');
+            container.innerHTML = '';
+            // Only show if there are keys to assign
+            if (Array.isArray(keys) && keys.length > 0) {
+                const keyOptions = ['w', 'a', 's', 'd', ' ', 'enter', 'q', 'e', 'z', 'x', 'c', 'r', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'i', 'k', 'o', 'l', 'p', 'm', 'n'];
+                keys.forEach(key => {
+                    const label = document.createElement('label');
+                    label.textContent = `Assign key for '${key}': `;
+                    label.style.marginRight = '8px';
+                    const select = document.createElement('select');
+                    keyOptions.forEach(opt => {
+                        const option = document.createElement('option');
+                        option.value = opt;
+                        option.textContent = opt === ' ' ? 'Space' : (opt === 'enter' ? 'Enter' : opt.toUpperCase());
+                        if (opt === key) option.selected = true;
+                        select.appendChild(option);
+                    });
+                    select.value = key;
+                    select.onchange = () => {
+                        // Update lastAssignments mapping
+                        const prevKey = Object.keys(lastAssignments).find(k => lastAssignments[k] === key);
+                        if (prevKey) delete lastAssignments[prevKey];
+                        lastAssignments[select.value] = 0;
+                    };
+                    container.appendChild(label);
+                    container.appendChild(select);
+                });
+            }
+            // Always add a Start button
+            const runBtn = document.createElement('button');
+            runBtn.textContent = 'Start';
+            runBtn.style.margin = '0 16px 0 16px';
+            runBtn.style.fontSize = '18px';
+            runBtn.style.padding = '8px 18px';
+            runBtn.style.background = '#1a5';
+            runBtn.style.color = '#fff';
+            runBtn.style.border = '1px solid #444';
+            runBtn.style.borderRadius = '4px';
+            runBtn.onclick = () => {
+                onStart();
+            };
+            container.appendChild(runBtn);
+            // After setting up dropdowns, update keyToAssignedId
+            updateKeyToAssignedId(lastAst);
+        }
+        // Patch to only start the game loop when Start is pressed
+        function setupDynamicControlsAndStart() {
+            if (!lastCode) return;
+            import('./main.js').then(main => {
+                const tokens = main.tokenize(lastCode);
+                const ast = main.parse(tokens);
+                // Debug: log AST to check .if blocks
+                console.log('TBT AST:', JSON.stringify(ast, null, 2));
+                lastAst = ast;
+                const assignedKeys = getAssignedKeys(ast);
+                // Reset lastAssignments to only include assigned keys, all set to 0
+                lastAssignments = {};
+                assignedKeys.forEach(key => { lastAssignments[key] = 0; });
+                // Always show the control buttons, even if there are no assigned keys
+                createControlDropdownsDynamic(assignedKeys, () => startRealtimeTBT(ast));
+            });
+        }
+        function startRealtimeTBT(ast) {
+            import('./interpreter.js').then(mod => {
+                tbtInterpreter = new mod.TBTInterpreter(ast);
+                if (gameLoopInterval) clearInterval(gameLoopInterval);
+
+                // Focus the live key input box on game start
+                const liveKeyInput = document.getElementById('live-key-input');
+                if (liveKeyInput) liveKeyInput.focus();
+
+                // Log to dev console that the interpreter/game has started
+                if (typeof window !== 'undefined' && window.console && window.console.log) {
+                    window.console.log('[TBT] Interpreter started, AST:', ast);
+                }
+
+                // Initial render after interpreter is created
+                window.gridData = {
+                    width: tbtInterpreter.canvas.width,
+                    height: tbtInterpreter.canvas.height,
+                    board: tbtInterpreter.board,
+                    objects: tbtInterpreter.objects,
+                    output: tbtInterpreter.output
+                };
+                window.gridErrors = null;
+                showGridAndErrors();
+
+                gameLoopInterval = setInterval(() => {
+                    processLiveMovement(); // <-- Add this line
+                    const result = tbtInterpreter.step(lastAssignments);
+                    window.gridData = {
+                        width: tbtInterpreter.canvas.width,
+                        height: tbtInterpreter.canvas.height,
+                        board: tbtInterpreter.board,
+                        objects: tbtInterpreter.objects,
+                        output: tbtInterpreter.output
+                    };
+                    window.gridErrors = null;
+                    showGridAndErrors();
+                    // --- Make repeat run forever ---
+                    // Never clearInterval, so the game loop keeps running
+                }, 1);
+            });
+        }
+        // Show controls as soon as code is loaded, not just on Start
         window.addEventListener('message', async (event) => {
             if (event.data && event.data.tbtCode) {
+                lastCode = event.data.tbtCode;
+                lastAssignments = {};
+                lastKeySignal = null;
+                if (gameLoopInterval) {
+                    clearInterval(gameLoopInterval);
+                    gameLoopInterval = null;
+                }
+
                 try {
                     const main = await import('./main.js');
-                    const tokens = main.tokenize(event.data.tbtCode);
+                    const tokens = main.tokenize(lastCode);
                     const ast = main.parse(tokens);
-                    const result = main.interpret(ast);
-                    // Extract width/height from AST if not present in result
-                    let width = result.width, height = result.height;
-                    if (!width || !height) {
-                        const canvasNode = Array.isArray(ast) ? ast.find(n => n.type === 'canvas') : null;
-                        if (canvasNode) {
-                            width = canvasNode.width;
-                            height = canvasNode.height;
-                        }
+                    lastAst = ast;
+                    updateKeyToAssignedId(ast);
+                    let assignedKeys = getAssignedKeys(ast);
+                    if (!Array.isArray(assignedKeys)) assignedKeys = [];
+                    lastAssignments = {};
+                    assignedKeys.forEach(key => { lastAssignments[key] = 0; });
+
+                    // --- FIX: Automatically start the TBT interpreter when code is received ---
+                    console.log('[TBT] Code received, starting interpreter...');
+                    startRealtimeTBT(ast);
+
+                    // Handle pre-written keys if they exist
+                    if (event.data.prewriteKeys && event.data.prewriteKeys.length > 0) {
+                        const prewriteInput = document.getElementById('prewrite-keys');
+                        if (prewriteInput) prewriteInput.value = event.data.prewriteKeys;
+                        setTimeout(() => {
+                            const prewrite = event.data.prewriteKeys;
+                            let i = 0;
+                            function sendNextKey() {
+                                if (i < prewrite.length) {
+                                    const k = prewrite[i];
+                                    if (lastAssignments.hasOwnProperty(k)) {
+                                        lastAssignments[k] = 1;
+                                        setTimeout(() => {
+                                            lastAssignments[k] = 0;
+                                            i++;
+                                            setTimeout(sendNextKey, 100);
+                                        }, 100);
+                                    } else {
+                                        i++;
+                                        setTimeout(sendNextKey, 0);
+                                    }
+                                }
+                            }
+                            sendNextKey();
+                        }, 500); // Delay to allow interpreter to init
                     }
-                    window.gridData = {
-                        width,
-                        height,
-                        board: result.board,
-                        objects: result.objects,
-                        output: result.output || ''
-                    };
-                    window.gridErrors = result.errors || null;
-                    showGridAndErrors();
                 } catch (e) {
-                    window.gridErrors = e.message || e.toString();
-                    showGridAndErrors();
+                    document.getElementById('error-log').textContent = 'Parse Error: ' + e.message;
+                    console.error('[TBT] Parse Error:', e);
                 }
             }
         });
+        // --- Listen for real-time grid updates from interpreter (for diversion) ---
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.tbtGridUpdate && event.data.gridData) {
+                window.gridData = event.data.gridData;
+                window.gridErrors = null;
+                showGridAndErrors();
+            }
+        });
+        // --- KEYBOARD SUPPORT FOR ASSIGNMENTS WITH REDUNDANT KEY BUFFER ---
+        // Key buffer: hold assignment for 60ms after keyup, and also set a backup buffer for 120ms
+        const KEY_BUFFER_MS = 60;
+        const KEY_BUFFER_REDUNDANT_MS = 120;
+        const keyBufferTimers = {};
+        const keyBufferRedundantTimers = {};
+        function keyFromEvent(e) {
+            if (e.key === ' ') return ' ';
+            if (e.key === 'Enter') return 'enter';
+            return e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        }
+        // --- Shared key event handlers for both document and input box ---
+        function handleKeyDown(e) {
+            const key = keyFromEvent(e);
+            // Always log the keydown event for debugging
+            console.log(`[TBT] KeyDown: '${key}'`);
+
+            if (lastAssignments.hasOwnProperty(key)) {
+                if (lastAssignments[key] !== 1) {
+                    console.log(`[TBT] Setting assignment: ${key} = 1`);
+                    lastAssignments[key] = 1; // Set to 1 (pressed)
+                }
+                // Clear any pending keyup timers for this key
+                if (keyBufferTimers[key]) {
+                    clearTimeout(keyBufferTimers[key]);
+                    keyBufferTimers[key] = null;
+                }
+                if (keyBufferRedundantTimers[key]) {
+                    clearTimeout(keyBufferRedundantTimers[key]);
+                    keyBufferRedundantTimers[key] = null;
+                }
+            }
+        }
+        function handleKeyUp(e) {
+            const key = keyFromEvent(e);
+            // Always log the keyup event for debugging
+            console.log(`[TBT] KeyUp: '${key}'`);
+
+            if (lastAssignments.hasOwnProperty(key)) {
+                // Use a short buffer to handle key-up events gracefully
+                if (keyBufferTimers[key]) clearTimeout(keyBufferTimers[key]);
+                keyBufferTimers[key] = setTimeout(() => {
+                    if (lastAssignments[key] !== 0) {
+                        console.log(`[TBT] Setting assignment: ${key} = 0`);
+                        lastAssignments[key] = 0; // Set to 0 (released)
+                    }
+                    keyBufferTimers[key] = null;
+                }, KEY_BUFFER_MS);
+
+                // Redundant, longer buffer for safety
+                if (keyBufferRedundantTimers[key]) clearTimeout(keyBufferRedundantTimers[key]);
+                keyBufferRedundantTimers[key] = setTimeout(() => {
+                    if (lastAssignments[key] !== 0) {
+                        lastAssignments[key] = 0;
+                    }
+                    keyBufferRedundantTimers[key] = null;
+                }, KEY_BUFFER_REDUNDANT_MS);
+            }
+        }
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keyup', handleKeyUp);
+        // --- Live key input for clear feedback ---
+        const liveKeyInput = document.getElementById('live-key-input');
+        const liveKeyStatus = document.getElementById('live-key-status');
+        liveKeyInput.addEventListener('keydown', (e) => {
+            const key = keyFromEvent(e);
+            liveKeyStatus.textContent = `Key pressed: ${key}`;
+            liveKeyStatus.style.color = '#1a5';
+            handleKeyDown(e);
+        });
+        liveKeyInput.addEventListener('keyup', (e) => {
+            const key = keyFromEvent(e);
+            liveKeyStatus.textContent = `Key released: ${key}`;
+            liveKeyStatus.style.color = '#888';
+            handleKeyUp(e);
+        });
+        liveKeyInput.addEventListener('blur', () => {
+            liveKeyStatus.textContent = 'Click the box and use WASD keys!';
+            liveKeyStatus.style.color = '#888';
+        });
+        liveKeyInput.addEventListener('focus', () => {
+            liveKeyStatus.textContent = 'Listening for WASD keys...';
+            liveKeyStatus.style.color = '#1a5';
+        });
+        // Set initial status
+        liveKeyStatus.textContent = 'Click the box and use WASD keys!';
+        liveKeyStatus.style.color = '#888';
+        console.log('[TBT] Input capture setup complete.');
+
+        // Global mapping from key to assigned id
+        let keyToAssignedId = {};
+        function updateKeyToAssignedId(ast) {
+            keyToAssignedId = {};
+            if (!Array.isArray(ast)) return;
+            let assignIndex = 1;
+            for (const node of ast) {
+                if (node && typeof node === 'object' && node.type === 'assign' && typeof node.key === 'string') {
+                    // Use node.id if available, else assign a unique number
+                    keyToAssignedId[node.key] = node.id !== undefined ? node.id : assignIndex++;
+                }
+            }
+        }
+        function processLiveMovement() {
+            if (!tbtInterpreter) return;
+            // Only trigger movement on keydown edge (when key goes from 0 to 1)
+            if (!processLiveMovement.prevAssignments) processLiveMovement.prevAssignments = {};
+            for (const key in lastAssignments) {
+                if (lastAssignments[key] === 1 && processLiveMovement.prevAssignments[key] !== 1) {
+                    tbtInterpreter.moveObjectByKey(key);
+                }
+            }
+            processLiveMovement.prevAssignments = { ...lastAssignments };
+        }
     </script>
 </body>
 </html>

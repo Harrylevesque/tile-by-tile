@@ -108,8 +108,8 @@ export function parse(tokens) {
             return { type: 'canvas', width, height };
         }
         if (t.type === 'ident' && t.value === 'ref' && peek(1) && peek(1).type === 'equals') {
-            // ref= assignment: ref=name(value)
-            next();
+            // ref=name assignment: ref=name(value)
+            next(); // consume 'ref'
             expect('equals');
             const varName = expect('ident').value;
             expect('lparen');
@@ -161,18 +161,39 @@ export function parse(tokens) {
         // move command
         if (t.type === 'ident' && t.value === 'move') {
             next();
-            let id = null, x = null, y = null, rel, set = null, swap = false;
+            let id = null, x = undefined, y = undefined, rel, set = null, swap = false;
+            // Parse id=...
+            if (peek() && peek().type === 'ident' && peek().value === 'id') {
+                next();
+                expect('equals');
+                id = parseValue();
+            }
+            // Support shorthand: move id=1 up/left/right/down/over/under or w/a/s/d
+            const keyToDir = { w: 'up', a: 'left', s: 'down', d: 'right' };
+            if (peek() && peek().type === 'ident') {
+                let val = peek().value;
+                if (["left","right","up","down","over","under"].includes(val)) {
+                    rel = val;
+                    next();
+                } else if (keyToDir[val]) {
+                    rel = keyToDir[val];
+                    next();
+                }
+            }
+            // Parse other properties (x, y, set, swap)
             while (peek() && peek().type === 'ident') {
                 const key = peek().value;
-                if (["id","x","y"].includes(key)) {
+                if (["x","y"].includes(key)) {
                     next();
                     expect('equals');
                     const val = parseValue();
-                    if (key === 'id') id = val;
                     if (key === 'x') x = val;
                     if (key === 'y') y = val;
                 } else if (["left","right","up","down","over","under"].includes(key)) {
                     rel = key;
+                    next();
+                } else if (keyToDir[key]) {
+                    rel = keyToDir[key];
                     next();
                 } else if (key === 'set') {
                     next();
@@ -185,6 +206,7 @@ export function parse(tokens) {
                 }
             }
             if (id === null) id = { type: 'number', value: 0 };
+            // Only set x/y if defined
             return { type: 'move', id, x, y, rel, set, swap };
         }
         // Standalone math/logic expression as statement
@@ -211,6 +233,9 @@ export function parse(tokens) {
             let count = null;
             if (peek() && peek().type === 'number') {
                 count = next().value;
+            } else if (peek() && peek().type === 'ident' && peek().value === 'forever') {
+                next();
+                count = 'forever';
             }
             // Parse block: . statements until next non-dot or EOF
             const block = [];
@@ -220,6 +245,87 @@ export function parse(tokens) {
                 if (stmt) block.push(stmt);
             }
             return { type: 'repeat', delay, count, block };
+        }
+        // if command
+        if (t.type === 'ident' && t.value === 'if') {
+            next();
+            expect('ident', 'id');
+            expect('equals');
+            const leftId = parseValue();
+            expect('ident', 'is');
+            // relation: under, over, left, right, on, is, assigned
+            const relationToken = expect('ident');
+            const relation = relationToken.value;
+            let rightId = null;
+            let assignedKey = null;
+            if (relation === 'assigned') {
+                // if id=1 is assigned w
+                const keyToken = expect('ident');
+                assignedKey = keyToken.value;
+            } else {
+                if (relation !== 'assigned') {
+                    expect('ident', 'id');
+                    expect('equals');
+                    rightId = parseValue();
+                }
+            }
+            // Parse .true and .false blocks (each with one dot)
+            let trueBlock = [], falseBlock = [];
+            // Only parse .true if the next ident is 'true'
+            if (peek() && peek().type === 'dots' && peek(1) && peek(1).type === 'ident' && peek(1).value === 'true') {
+                next();
+                const trueLabel = expect('ident');
+                if (trueLabel.value !== 'true') errorWithLine('Expected true after . in if');
+                while (peek() && peek().type === 'dots' && (!peek(1) || (peek(1).type !== 'ident' || (peek(1).value !== 'true' && peek(1).value !== 'false')))) {
+                    next();
+                    const stmt = parseStatement();
+                    if (stmt) trueBlock.push(stmt);
+                }
+            }
+            // Only parse .false if the next ident is 'false'
+            if (peek() && peek().type === 'dots' && peek(1) && peek(1).type === 'ident' && peek(1).value === 'false') {
+                next();
+                const falseLabel = expect('ident');
+                if (falseLabel.value !== 'false') errorWithLine('Expected false after . in if');
+                while (peek() && peek().type === 'dots' && (!peek(1) || (peek(1).type !== 'ident' || (peek(1).value !== 'true' && peek(1).value !== 'false')))) {
+                    next();
+                    const stmt = parseStatement();
+                    if (stmt) falseBlock.push(stmt);
+                }
+            }
+            // Always return both blocks, even if falseBlock is empty
+            return {
+                type: 'if',
+                leftId,
+                relation,
+                rightId,
+                assignedKey,
+                trueBlock,
+                falseBlock
+            };
+        }
+        // assign command
+        if (t.type === 'ident' && t.value === 'assign') {
+            next();
+            const keyToken = expect('ident');
+            const key = keyToken.value;
+            expect('ident', 'to');
+            // assign ... to ref(name) or assign ... to id=VALUE
+            let value = null;
+            if (peek() && peek().type === 'ident' && peek().value === 'ref' && peek(1) && peek(1).type === 'lparen') {
+                next();
+                expect('lparen');
+                const varName = expect('ident').value;
+                expect('rparen');
+                value = { type: 'func', name: 'ref', args: [{ type: 'ident', value: varName }] };
+            } else if (peek() && peek().type === 'ident' && peek().value === 'id') {
+                next();
+                expect('equals');
+                value = parseValue(); // Accept any value, not just number
+            } else {
+                errorWithLine('Expected ref(name) or id=number after to in assign');
+            }
+            return { type: 'assign', key, value };
         }
         // move, spawn, despawn, assign, repeat, if, etc.
         // For brevity, only canvas and ref= are implemented here.
